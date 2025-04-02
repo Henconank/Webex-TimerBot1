@@ -1,0 +1,62 @@
+# Тесты для ветки Максата
+import pytest
+import logging
+
+# Мокируем send_message, чтобы он не отправлял реальные запросы
+@pytest.fixture
+def mock_send_message(mocker):
+    return mocker.patch("maksat_branch.send_message")
+
+# Тест обработки сообщений (Максат) - проверка пользовательского интерфейса
+@pytest.mark.parametrize("input_text, expected_message", [
+    ("timer", "Выберите таймер:\n1. 30 сек\n2. 1 мин\n3. 5 мин\n4. Введите свое время (в секундах)"),
+    ("abc", "Ошибка: введите число секунд."),
+])
+def test_process_message_maksat(input_text, expected_message, mock_send_message):
+    from maksat_branch import process_message
+    # Создаем мок-объект сообщения
+    message_data = {"text": input_text, "personId": "123"}
+    
+    # Мокируем функцию get_message_from_rishat
+    with pytest.mock.patch("maksat_branch.get_message_from_rishat", return_value=message_data):
+        process_message("dummy_id")
+    
+    # Проверяем вызов send_message с ожидаемым текстом
+    assert mock_send_message.call_args[0][1].strip() == expected_message.strip()
+
+# Тест логирования ошибок (Максат)
+def test_logging_error(caplog):
+    from maksat_branch import process_message
+    
+    with caplog.at_level(logging.WARNING):
+        # Мокируем get_message_from_rishat, чтобы вернуть None
+        with pytest.mock.patch("maksat_branch.get_message_from_rishat", return_value=None):
+            process_message("invalid_id")
+    
+    assert "Не удалось получить данные сообщения" in caplog.text
+
+# Тесты для ветки Ришата
+# Тесты для parse_timer() (Ришат) - проверка обработки команд
+@pytest.mark.parametrize("input_text, expected_output", [
+    ("30 сек", 30),
+    ("1 мин", 60),
+    ("5 мин", 300),
+    ("10 мин", 0)  # Несуществующий вариант
+])
+def test_parse_timer(input_text, expected_output):
+    from rishat_branch import parse_timer
+    assert parse_timer(input_text) == expected_output
+
+# Тест работы таймера (Ришат)
+def test_start_timer(mock_send_message):
+    from rishat_branch import start_timer
+    
+    # Мокируем time.sleep, чтобы не ждать реальное время
+    with pytest.mock.patch("time.sleep"):
+        # Мокируем импорт send_message из maksat_branch
+        with pytest.mock.patch("rishat_branch.send_message_to_maksat_branch") as mock_send:
+            start_timer("123", 30)
+            
+            # Проверяем, что сообщения отправляются корректно
+            assert mock_send.call_args_list[0][0][1] == "Таймер запущен на 30 секунд..."
+            assert mock_send.call_args_list[1][0][1] == "⏰ Время вышло!"
