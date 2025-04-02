@@ -1,0 +1,58 @@
+import time
+import json
+import requests
+import logging
+from flask import Flask, request
+
+"""
+=====================
+📌 Webex Timer Bot - Core Logic 📌
+=====================
+
+Этот модуль содержит основную логику работы с API Webex
+и функциональность таймера.
+"""
+
+# Webex Bot Token (замени на свой)
+WEBEX_BOT_TOKEN = "N2NlMWM0ZTktODY4OS00MjM1LTg2YzMtYjc3NjhlZjIwNWRmOTcyMjYxYzMtZmE3_PE93_d84055ec-08e2-496f-a788-e38009e29164"
+HEADERS = {"Authorization": f"Bearer {WEBEX_BOT_TOKEN}", "Content-Type": "application/json"}
+
+app = Flask(__name__)
+
+def get_message(message_id):
+    """Получаем сообщение по его ID"""
+    url = f"https://webexapis.com/v1/messages/{message_id}"
+    response = requests.get(url, headers=HEADERS)
+    return response.json() if response.status_code == 200 else None
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+    if "data" in data and "id" in data["data"]:
+        from maksat_branch import process_message
+        process_message(data["data"]["id"])
+    return "OK", 200
+
+# Простая обработка данных
+def parse_timer(text):
+    return {"30 сек": 30, "1 мин": 60, "5 мин": 300}.get(text, 0)
+
+# Основная логика работы таймера
+def start_timer(user_id, seconds):
+    if seconds <= 0:
+        from maksat_branch import send_message
+        send_message(user_id, "Ошибка: некорректное значение времени.")
+        return
+
+    from maksat_branch import send_message
+    send_message(user_id, f"Таймер запущен на {seconds} секунд...")
+    time.sleep(seconds)
+    send_message(user_id, "⏰ Время вышло!")
+
+def send_message_to_maksat_branch(user_id, text):
+    """Передаем сообщение в ветку Максата для отправки"""
+    from maksat_branch import send_message
+    send_message(user_id, text)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
