@@ -1,0 +1,127 @@
+import time
+import json
+import requests
+import logging
+from flask import Flask, request
+
+"""
+=====================
+📌 Webex Timer Bot - Guideline 📌
+=====================
+
+🔹 Как работает бот:
+1. Добавьте бота в чат Webex.
+2. Напишите "timer" для получения вариантов таймера.
+3. Выберите один из стандартных таймеров (30 сек, 1 мин, 5 мин) или введите своё время в секундах.
+4. Бот запустит таймер и уведомит вас, когда время истечёт.
+
+🔹 Команды:
+- "timer" – показать кнопки с вариантами таймера.
+- "30 сек", "1 мин", "5 мин" – запустить соответствующий таймер.
+- "таймер X" – запустить таймер на X секунд (X – любое число).
+
+🔹 Пример использования:
+- Вы: "timer"
+- Бот: "Выберите таймер: 30 сек, 1 мин, 5 мин или введите своё время."
+- Вы: "1 мин"
+- Бот: "Таймер запущен на 60 секунд..."
+- (Спустя 60 секунд)
+- Бот: "⏰ Время вышло!"
+
+"""
+
+# Настройка логирования (Часть Максата)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Webex Bot Token (замени на свой) (Часть Ришата)
+WEBEX_BOT_TOKEN = "N2NlMWM0ZTktODY4OS00MjM1LTg2YzMtYjc3NjhlZjIwNWRmOTcyMjYxYzMtZmE3_PE93_d84055ec-08e2-496f-a788-e38009e29164"
+HEADERS = {"Authorization": f"Bearer {WEBEX_BOT_TOKEN}", "Content-Type": "application/json"}
+
+app = Flask(__name__)
+user_guideline_sent = set()  # Хранит ID пользователей, которым отправлен гайд
+
+# Часть Ришата - чистая логика
+def get_message(message_id):
+    """Получаем сообщение по его ID"""
+    url = f"https://webexapis.com/v1/messages/{message_id}"
+    response = requests.get(url, headers=HEADERS)
+    return response.json() if response.status_code == 200 else None
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+    if "data" in data and "id" in data["data"]:
+        process_message(data["data"]["id"])
+    return "OK", 200
+
+# Часть Максата - добавление логирования и обработки ошибок
+def process_message(message_id):
+    message_data = get_message(message_id)
+    if not message_data:
+        logging.warning(f"Не удалось получить данные сообщения ID {message_id}")
+        return
+    
+    user_id = message_data.get("personId")
+    text = message_data.get("text", "").lower()
+    
+    # Отправляем гайд, если пользователь впервые пишет боту
+    if user_id not in user_guideline_sent:
+        send_guideline(user_id)
+        user_guideline_sent.add(user_id)
+    
+    if "timer" in text:
+        send_buttons(user_id)
+    elif any(keyword in text for keyword in ["30 сек", "1 мин", "5 мин"]):
+        start_timer(user_id, parse_timer(text))
+    else:
+        try:
+            seconds = int(text.split()[-1])
+            start_timer(user_id, seconds)
+        except ValueError:
+            send_message(user_id, "Ошибка: введите число секунд.")
+
+# Часть Ришата - простая обработка данных
+def parse_timer(text):
+    return {"30 сек": 30, "1 мин": 60, "5 мин": 300}.get(text, 0)
+
+# Часть Максата - поясняющие сообщения пользователю
+def send_buttons(user_id):
+    message = "Выберите таймер:\n1. 30 сек\n2. 1 мин\n3. 5 мин\n4. Введите свое время (в секундах)"
+    send_message(user_id, message)
+
+# Часть Ришата - основная логика работы таймера
+def start_timer(user_id, seconds):
+    if seconds <= 0:
+        send_message(user_id, "Ошибка: некорректное значение времени.")
+        return
+    send_message(user_id, f"Таймер запущен на {seconds} секунд...")
+    time.sleep(seconds)
+    send_message(user_id, "⏰ Время вышло!")
+
+# Часть Максата - логирование ошибок при отправке сообщений
+def send_message(user_id, text):
+    url = "https://webexapis.com/v1/messages"
+    payload = {"toPersonId": user_id, "text": text}
+    try:
+        response = requests.post(url, headers=HEADERS, json=payload)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Ошибка при отправке сообщения: {e}")
+
+# Часть Максата - отправка гайденса при первом сообщении от пользователя
+def send_guideline(user_id):
+    guideline_text = (
+        "📌 Webex Timer Bot - Руководство\n\n"
+        "🔹 Как работает бот:\n"
+        "1. Напишите 'timer', чтобы получить варианты таймера.\n"
+        "2. Выберите стандартный таймер или введите время в секундах.\n"
+        "3. Бот уведомит вас, когда время истечёт.\n\n"
+        "🔹 Команды:\n"
+        "- 'timer' – показать кнопки.\n"
+        "- '30 сек', '1 мин', '5 мин' – запустить таймер.\n"
+        "- 'таймер X' – таймер на X секунд."
+    )
+    send_message(user_id, guideline_text)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
